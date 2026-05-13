@@ -12,6 +12,8 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Cache bust: fuerza rebuild del cliente Prisma en cada deploy
+ARG CACHEBUST=1
 RUN rm -rf node_modules/.prisma && npx prisma generate
 RUN npm run build
 

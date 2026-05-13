@@ -1,7 +1,58 @@
-import { PrismaAdapter } from '@auth/prisma-adapter';
+import type { Adapter } from 'next-auth/adapters';
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { prisma } from './prisma';
+
+// Adapter manual — no usa emailVerified que no está en el cliente Prisma cacheado
+const adapter: Adapter = {
+  createUser: (data) =>
+    prisma.user.create({
+      data: { email: data.email, name: data.name ?? null, image: data.image ?? null },
+    }) as any,
+
+  getUser: (id) => prisma.user.findUnique({ where: { id } }) as any,
+
+  getUserByEmail: (email) => prisma.user.findUnique({ where: { email } }) as any,
+
+  getUserByAccount: async ({ provider, providerAccountId }) => {
+    const acc = await prisma.account.findUnique({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+      include: { user: true },
+    });
+    return (acc?.user ?? null) as any;
+  },
+
+  updateUser: ({ id, ...data }) =>
+    prisma.user.update({ where: { id }, data }) as any,
+
+  deleteUser: (id) => prisma.user.delete({ where: { id } }) as any,
+
+  linkAccount: (data) =>
+    prisma.account.create({ data: data as any }) as any,
+
+  unlinkAccount: ({ provider, providerAccountId }) =>
+    prisma.account.delete({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+    }) as any,
+
+  createSession: (data) => prisma.session.create({ data }),
+
+  getSessionAndUser: async (sessionToken) => {
+    const result = await prisma.session.findUnique({
+      where: { sessionToken },
+      include: { user: true },
+    });
+    if (!result) return null;
+    const { user, ...session } = result;
+    return { session, user: user as any };
+  },
+
+  updateSession: (data) =>
+    prisma.session.update({ where: { sessionToken: data.sessionToken }, data }) as any,
+
+  deleteSession: (sessionToken) =>
+    prisma.session.delete({ where: { sessionToken } }) as any,
+};
 
 async function promoteAdminIfNeeded(userId: string | undefined, email: string | null | undefined) {
   if (!userId || !email) return;
@@ -16,21 +67,8 @@ async function promoteAdminIfNeeded(userId: string | undefined, email: string | 
   }
 }
 
-function buildAdapter() {
-  const base = PrismaAdapter(prisma) as NonNullable<NextAuthOptions['adapter']>;
-  return {
-    ...base,
-    // emailVerified es requerido por NextAuth pero puede no estar en el cliente generado
-    createUser: (data: Parameters<NonNullable<typeof base.createUser>>[0]) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { emailVerified, ...rest } = data as typeof data & { emailVerified?: unknown };
-      return base.createUser!(rest as typeof data);
-    },
-  };
-}
-
 export const authOptions: NextAuthOptions = {
-  adapter: buildAdapter(),
+  adapter,
   session: { strategy: 'database' },
   providers: [
     GoogleProvider({
@@ -43,15 +81,7 @@ export const authOptions: NextAuthOptions = {
       if (!session.user) return session;
       const dbUser = await prisma.user.findUnique({
         where: { id: user.id },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          image: true,
-          status: true,
-          hasPaid: true,
-          isAdmin: true,
-        },
+        select: { id: true, email: true, name: true, image: true, status: true, hasPaid: true, isAdmin: true },
       });
       if (dbUser) {
         session.user.id = dbUser.id;
@@ -73,7 +103,5 @@ export const authOptions: NextAuthOptions = {
       await promoteAdminIfNeeded(user.id, user.email);
     },
   },
-  pages: {
-    signIn: '/login',
-  },
+  pages: { signIn: '/login' },
 };

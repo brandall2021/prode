@@ -16,8 +16,21 @@ async function promoteAdminIfNeeded(userId: string | undefined, email: string | 
   }
 }
 
+function buildAdapter() {
+  const base = PrismaAdapter(prisma) as NonNullable<NextAuthOptions['adapter']>;
+  return {
+    ...base,
+    // emailVerified es requerido por NextAuth pero puede no estar en el cliente generado
+    createUser: (data: Parameters<NonNullable<typeof base.createUser>>[0]) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { emailVerified, ...rest } = data as typeof data & { emailVerified?: unknown };
+      return base.createUser!(rest as typeof data);
+    },
+  };
+}
+
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma) as NextAuthOptions['adapter'],
+  adapter: buildAdapter(),
   session: { strategy: 'database' },
   providers: [
     GoogleProvider({

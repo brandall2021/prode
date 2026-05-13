@@ -1,20 +1,20 @@
-import type { Adapter, AdapterUser } from 'next-auth/adapters';
+import type { Adapter, AdapterUser, AdapterAccount, AdapterSession } from 'next-auth/adapters';
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { prisma } from './prisma';
 
-// Adapter manual — no usa emailVerified que no está en el cliente Prisma cacheado
+// Adapter manual — omite emailVerified para compatibilidad con Prisma client cacheado
 const adapter: Adapter = {
   createUser: (data: Omit<AdapterUser, 'id'>) =>
     prisma.user.create({
       data: { email: data.email, name: data.name ?? null, image: data.image ?? null },
     }) as any,
 
-  getUser: (id) => prisma.user.findUnique({ where: { id } }) as any,
+  getUser: (id: string) => prisma.user.findUnique({ where: { id } }) as any,
 
-  getUserByEmail: (email) => prisma.user.findUnique({ where: { email } }) as any,
+  getUserByEmail: (email: string) => prisma.user.findUnique({ where: { email } }) as any,
 
-  getUserByAccount: async ({ provider, providerAccountId }) => {
+  getUserByAccount: async ({ provider, providerAccountId }: Pick<AdapterAccount, 'provider' | 'providerAccountId'>) => {
     const acc = await prisma.account.findUnique({
       where: { provider_providerAccountId: { provider, providerAccountId } },
       include: { user: true },
@@ -22,22 +22,23 @@ const adapter: Adapter = {
     return (acc?.user ?? null) as any;
   },
 
-  updateUser: ({ id, ...data }) =>
+  updateUser: ({ id, ...data }: Partial<AdapterUser> & Pick<AdapterUser, 'id'>) =>
     prisma.user.update({ where: { id }, data }) as any,
 
-  deleteUser: (id) => prisma.user.delete({ where: { id } }) as any,
+  deleteUser: (id: string) => prisma.user.delete({ where: { id } }) as any,
 
-  linkAccount: (data) =>
+  linkAccount: (data: AdapterAccount) =>
     prisma.account.create({ data: data as any }) as any,
 
-  unlinkAccount: ({ provider, providerAccountId }) =>
+  unlinkAccount: ({ provider, providerAccountId }: Pick<AdapterAccount, 'provider' | 'providerAccountId'>) =>
     prisma.account.delete({
       where: { provider_providerAccountId: { provider, providerAccountId } },
     }) as any,
 
-  createSession: (data) => prisma.session.create({ data }),
+  createSession: (data: { sessionToken: string; userId: string; expires: Date }) =>
+    prisma.session.create({ data }),
 
-  getSessionAndUser: async (sessionToken) => {
+  getSessionAndUser: async (sessionToken: string) => {
     const result = await prisma.session.findUnique({
       where: { sessionToken },
       include: { user: true },
@@ -47,10 +48,10 @@ const adapter: Adapter = {
     return { session, user: user as any };
   },
 
-  updateSession: (data) =>
+  updateSession: (data: Partial<AdapterSession> & Pick<AdapterSession, 'sessionToken'>) =>
     prisma.session.update({ where: { sessionToken: data.sessionToken }, data }) as any,
 
-  deleteSession: (sessionToken) =>
+  deleteSession: (sessionToken: string) =>
     prisma.session.delete({ where: { sessionToken } }) as any,
 };
 

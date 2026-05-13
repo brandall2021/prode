@@ -1,11 +1,11 @@
-import type { Adapter } from 'next-auth/adapters';
+import type { Adapter, AdapterUser } from 'next-auth/adapters';
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { prisma } from './prisma';
 
 // Adapter manual — no usa emailVerified que no está en el cliente Prisma cacheado
 const adapter: Adapter = {
-  createUser: (data) =>
+  createUser: (data: Omit<AdapterUser, 'id'>) =>
     prisma.user.create({
       data: { email: data.email, name: data.name ?? null, image: data.image ?? null },
     }) as any,

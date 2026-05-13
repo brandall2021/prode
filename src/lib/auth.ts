@@ -3,6 +3,19 @@ import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import { prisma } from './prisma';
 
+async function promoteAdminIfNeeded(userId: string | undefined, email: string | null | undefined) {
+  if (!userId || !email) return;
+  const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
+  if (!adminEmail || email.toLowerCase() !== adminEmail) return;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { isAdmin: true } });
+  if (!user?.isAdmin) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isAdmin: true, status: 'APPROVED', hasPaid: true },
+    });
+  }
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions['adapter'],
   session: { strategy: 'database' },
@@ -41,14 +54,10 @@ export const authOptions: NextAuthOptions = {
   },
   events: {
     async createUser({ user }) {
-      // Promueve automáticamente al primer admin definido por ADMIN_EMAIL
-      const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase();
-      if (adminEmail && user.email?.toLowerCase() === adminEmail) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { isAdmin: true, status: 'APPROVED' },
-        });
-      }
+      await promoteAdminIfNeeded(user.id, user.email);
+    },
+    async signIn({ user }) {
+      await promoteAdminIfNeeded(user.id, user.email);
     },
   },
   pages: {

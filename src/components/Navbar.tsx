@@ -21,6 +21,9 @@ export default function Navbar() {
           <Link href="/" className="rounded px-2 py-1 hover:bg-prode-green-light">
             Inicio
           </Link>
+          <Link href="/pagos" className="rounded px-2 py-1 hover:bg-prode-green-light">
+            Pagos
+          </Link>
           {isActive && (
             <>
               <Link href="/picks" className="rounded px-2 py-1 hover:bg-prode-green-light">

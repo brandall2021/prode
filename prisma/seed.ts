@@ -357,7 +357,40 @@ async function main() {
     });
   }
 
+  await seedTeamsAndPlayers();
+
   console.log('Seed completado.');
+}
+
+async function seedTeamsAndPlayers() {
+  console.log('Sembrando equipos y jugadores...');
+  const teams = Object.keys(NAME).map((key) => ({
+    name: NAME[key],
+    flag: FLAGS[key],
+  }));
+
+  for (const team of teams) {
+    const createdTeam = await prisma.team.upsert({
+      where: { name: team.name },
+      update: { flag: team.flag },
+      create: team,
+    });
+
+    // Add 3 placeholder players
+    for (let i = 1; i <= 3; i++) {
+      await prisma.player.upsert({
+        where: { id: `placeholder-${createdTeam.id}-${i}` },
+        update: {},
+        create: {
+          id: `placeholder-${createdTeam.id}-${i}`,
+          name: `Jugador ${i} ${createdTeam.name}`,
+          position: 'Delantero',
+          teamId: createdTeam.id,
+        },
+      });
+    }
+  }
+  console.log('Equipos y jugadores sembrados.');
 }
 
 main()

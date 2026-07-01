@@ -3,15 +3,13 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
-type AdminAction = 'APPROVE' | 'REJECT' | 'CONFIRM_PAYMENT' | 'REVERT_PAYMENT' | 'TOGGLE_ADMIN';
+type AdminAction = 'TOGGLE_ADMIN';
 
 export type AdminUser = {
   id: string;
   email: string;
   name: string | null;
   image: string | null;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  hasPaid: boolean;
   isAdmin: boolean;
   createdAt: string;
 };
@@ -30,13 +28,13 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
     );
   }, [q, users]);
 
-  const run = async (userId: string, action: AdminAction, notes?: string) => {
+  const run = async (userId: string, action: AdminAction) => {
     setBusyId(userId);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, action, notes }),
+        body: JSON.stringify({ userId, action }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -62,9 +60,9 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
         <table className="w-full bg-white text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
-              <th className="p-2">Usuario</th>
-              <th className="p-2">Estado</th>
-              <th className="p-2">Pago</th>
+              <th className="p-2">Jugador</th>
+              <th className="p-2">Pais</th>
+              <th className="p-2">Bandera</th>
               <th className="p-2">Admin</th>
               <th className="p-2 text-right">Acciones</th>
             </tr>
@@ -92,18 +90,10 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
                   </div>
                 </td>
                 <td className="p-2">
-                  <StatusBadge status={u.status} />
+                  <span className="text-xs text-gray-600">Argentina</span>
                 </td>
                 <td className="p-2">
-                  {u.hasPaid ? (
-                    <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                      Pagado
-                    </span>
-                  ) : (
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                      Sin pago
-                    </span>
-                  )}
+                  <span className="text-lg">🇦🇷</span>
                 </td>
                 <td className="p-2">
                   {u.isAdmin ? (
@@ -116,46 +106,6 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
                 </td>
                 <td className="p-2">
                   <div className="flex flex-wrap justify-end gap-1">
-                    {u.status !== 'APPROVED' && (
-                      <button
-                        className="rounded bg-green-600 px-2 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-                        disabled={busyId === u.id || pending}
-                        onClick={() => run(u.id, 'APPROVE')}
-                      >
-                        Aprobar
-                      </button>
-                    )}
-                    {u.status !== 'REJECTED' && (
-                      <button
-                        className="rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                        disabled={busyId === u.id || pending}
-                        onClick={() => run(u.id, 'REJECT')}
-                      >
-                        Rechazar
-                      </button>
-                    )}
-                    {!u.hasPaid ? (
-                      <button
-                        className="rounded bg-prode-gold px-2 py-1 text-xs font-semibold text-prode-green hover:brightness-95 disabled:opacity-50"
-                        disabled={busyId === u.id || pending}
-                        onClick={() => {
-                          const notes = window.prompt('Notas del pago (opcional):') ?? '';
-                          run(u.id, 'CONFIRM_PAYMENT', notes);
-                        }}
-                      >
-                        Confirmar pago
-                      </button>
-                    ) : (
-                      <button
-                        className="rounded bg-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-400 disabled:opacity-50"
-                        disabled={busyId === u.id || pending}
-                        onClick={() => {
-                          if (confirm('¿Revertir el pago?')) run(u.id, 'REVERT_PAYMENT');
-                        }}
-                      >
-                        Revertir pago
-                      </button>
-                    )}
                     <button
                       className="rounded border border-prode-green px-2 py-1 text-xs font-semibold text-prode-green hover:bg-prode-green hover:text-white disabled:opacity-50"
                       disabled={busyId === u.id || pending}
@@ -169,7 +119,7 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-4 text-center text-gray-500">
+                <td colSpan={4} className="p-4 text-center text-gray-500">
                   No hay usuarios.
                 </td>
               </tr>
@@ -178,23 +128,5 @@ export default function UsersTable({ users }: { users: AdminUser[] }) {
         </table>
       </div>
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: AdminUser['status'] }) {
-  const map = {
-    PENDING: 'bg-yellow-100 text-yellow-800',
-    APPROVED: 'bg-green-100 text-green-800',
-    REJECTED: 'bg-red-100 text-red-800',
-  } as const;
-  const labels = {
-    PENDING: 'Pendiente',
-    APPROVED: 'Aprobado',
-    REJECTED: 'Rechazado',
-  } as const;
-  return (
-    <span className={`rounded px-2 py-0.5 text-xs font-semibold ${map[status]}`}>
-      {labels[status]}
-    </span>
   );
 }

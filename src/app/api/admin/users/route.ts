@@ -27,31 +27,7 @@ export async function PATCH(req: Request) {
   const target = await prisma.user.findUnique({ where: { id: userId } });
   if (!target) return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
 
-  if (action === 'APPROVE') {
-    await prisma.user.update({ where: { id: userId }, data: { status: 'APPROVED' } });
-  } else if (action === 'REJECT') {
-    await prisma.user.update({ where: { id: userId }, data: { status: 'REJECTED' } });
-  } else if (action === 'CONFIRM_PAYMENT') {
-    await prisma.$transaction([
-      prisma.user.update({
-        where: { id: userId },
-        data: { hasPaid: true, paidAt: new Date() },
-      }),
-      prisma.payment.create({
-        data: {
-          userId,
-          amount: 20000,
-          confirmedBy: admin.id,
-          notes: notes || null,
-        },
-      }),
-    ]);
-  } else if (action === 'REVERT_PAYMENT') {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { hasPaid: false, paidAt: null },
-    });
-  } else if (action === 'TOGGLE_ADMIN') {
+  if (action === 'TOGGLE_ADMIN') {
     await prisma.user.update({
       where: { id: userId },
       data: { isAdmin: !target.isAdmin },

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
-const PROTECTED = ['/picks', '/mis-picks', '/admin'];
+const PROTECTED = ['/admin'];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

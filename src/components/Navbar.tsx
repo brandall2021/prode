@@ -21,6 +21,12 @@ export default function Navbar() {
           <Link href="/" className="rounded px-2 py-1 hover:bg-prode-green-light">
             Inicio
           </Link>
+          <Link href="/equipos" className="rounded px-2 py-1 hover:bg-prode-green-light">
+            Equipos
+          </Link>
+          <Link href="/en-vivo" className="rounded px-2 py-1 hover:bg-prode-green-light">
+            En Vivo
+          </Link>
           <Link href="/pagos" className="rounded px-2 py-1 hover:bg-prode-green-light">
             Pagos
           </Link>

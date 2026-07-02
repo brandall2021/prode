@@ -19,6 +19,7 @@ type TeamStanding = {
   gc: number;
   dg: number;
   pts: number;
+  group: string;
 };
 
 type Scorer = {
@@ -46,6 +47,7 @@ function calculateStandings(matches: any[]): Record<string, TeamStanding[]> {
         name: match.homeTeam,
         flag: match.homeFlag,
         pj: 0, pg: 0, pe: 0, pp: 0, gf: 0, gc: 0, dg: 0, pts: 0,
+        group: group,
       };
     }
     if (!standings[group][match.awayTeam]) {
@@ -53,6 +55,7 @@ function calculateStandings(matches: any[]): Record<string, TeamStanding[]> {
         name: match.awayTeam,
         flag: match.awayFlag,
         pj: 0, pg: 0, pe: 0, pp: 0, gf: 0, gc: 0, dg: 0, pts: 0,
+        group: group,
       };
     }
 
@@ -88,7 +91,7 @@ function calculateStandings(matches: any[]): Record<string, TeamStanding[]> {
     }
   }
 
-  // Ordenar los equipos de cada grupo según reglas oficiales
+  // Ordenar los equipos de cada grupo según reglas oficiales de la FIFA
   const sortedStandings: Record<string, TeamStanding[]> = {};
   for (const group of Object.keys(standings)) {
     sortedStandings[group] = Object.values(standings[group]).sort((a, b) => {
@@ -102,7 +105,7 @@ function calculateStandings(matches: any[]): Record<string, TeamStanding[]> {
   return sortedStandings;
 }
 
-// Función para obtener la tabla de goleadores de forma dinámica
+// Obtener la tabla de goleadores de forma dinámica
 function getTopScorers(matches: any[]): Scorer[] {
   const scorersMap: Record<string, Scorer> = {};
 
@@ -135,6 +138,40 @@ function getTopScorers(matches: any[]): Scorer[] {
     .slice(0, 10);
 }
 
+// Calcular clasificados para Ronda de 32 (Reglas Oficiales Mundial 2026: 12 grupos)
+// Clasifican: Primero y Segundo de cada grupo (24 equipos) + los 8 mejores terceros (8 equipos)
+function getQualifiedTeams(standings: Record<string, TeamStanding[]>) {
+  const directQualified: { name: string; flag: string; group: string; reason: string }[] = [];
+  const thirdPlaces: TeamStanding[] = [];
+
+  for (const group of Object.keys(standings)) {
+    const list = standings[group];
+    if (list[0]) directQualified.push({ name: list[0].name, flag: list[0].flag, group, reason: '1° Puesto' });
+    if (list[1]) directQualified.push({ name: list[1].name, flag: list[1].flag, group, reason: '2° Puesto' });
+    if (list[2]) thirdPlaces.push(list[2]);
+  }
+
+  // Ordenar los mejores terceros de todos los grupos
+  const sortedThirdPlaces = [...thirdPlaces].sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    if (b.dg !== a.dg) return b.dg - a.dg;
+    if (b.gf !== a.gf) return b.gf - a.gf;
+    return 0;
+  });
+
+  const bestThirdQualified = sortedThirdPlaces.slice(0, 8).map((t) => ({
+    name: t.name,
+    flag: t.flag,
+    group: t.group,
+    reason: 'Mejor 3°',
+  }));
+
+  return {
+    allQualified: [...directQualified, ...bestThirdQualified].sort((a, b) => a.group.localeCompare(b.group)),
+    sortedThirdPlaces,
+  };
+}
+
 export default async function HomePage() {
   const matches = await prisma.match.findMany({
     orderBy: { matchDate: 'asc' },
@@ -142,6 +179,7 @@ export default async function HomePage() {
 
   const standings = calculateStandings(matches);
   const topScorers = getTopScorers(matches);
+  const { allQualified } = getQualifiedTeams(standings);
 
   // Separar en jugados (con resultado) y próximos
   const playedMatches = matches.filter((m) => m.homeScore !== null && m.awayScore !== null);
@@ -329,7 +367,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {/* Tabla de Goleadores (Bota de Oro) */}
+          {/* Tabla de Goleadores */}
           <div className="space-y-4">
             <div className="border-b border-slate-100 pb-2">
               <h2 className="text-lg font-extrabold text-slate-800 tracking-tight">
@@ -371,6 +409,44 @@ export default async function HomePage() {
           </div>
         </div>
       </div>
+
+      {/* Proyección de Clasificados a Dieciseisavos de Final (R32) */}
+      <section className="space-y-6">
+        <div className="border-b border-slate-100 pb-3">
+          <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+            Proyección Ronda de 32 (Dieciseisavos de Final)
+          </h2>
+          <p className="text-slate-400 text-xs mt-1">
+            Lista de las 32 selecciones que actualmente estarían clasificando a la fase eliminatoria según las reglas oficiales de la FIFA (1° y 2° de cada grupo + los 8 mejores terceros).
+          </p>
+        </div>
+
+        {allQualified.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">Iniciando cálculo de proyecciones...</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">
+            {allQualified.map((team, idx) => (
+              <div
+                key={idx}
+                className="rounded-2xl border border-slate-200 bg-white p-3.5 flex flex-col items-center text-center space-y-2.5 shadow-sm relative overflow-hidden"
+              >
+                <span className="text-3xl filter drop-shadow-sm select-none">{team.flag}</span>
+                <div className="space-y-0.5">
+                  <p className="font-extrabold text-slate-800 text-xs truncate max-w-[100px]">
+                    {team.name}
+                  </p>
+                  <p className="text-[9px] text-slate-400 uppercase font-bold font-mono">
+                    Grupo {team.group}
+                  </p>
+                </div>
+                <span className="text-[8px] font-extrabold bg-prode-green/10 text-prode-green px-2 py-0.5 rounded-full font-mono uppercase tracking-wider">
+                  {team.reason}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Tablas de Posiciones de los Grupos */}
       <section className="space-y-6">

@@ -192,7 +192,7 @@ async function main() {
 
     if (!backtrack(0)) {
       console.error('Cannot solve 3rd-place assignment! Using fallback rank-based assignment.');
-      return thirdSlots.map((s, i) => R[i]?.team || null);
+      return thirdSlots.map((s, i) => R[i]?.team || 'TBD');
     }
     return assign as string[];
   }

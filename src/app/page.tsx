@@ -1,144 +1,347 @@
 import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { getPozo, formatARS } from '@/lib/pozo';
 
 export const dynamic = 'force-dynamic';
 
-type Row = {
-  id: string;
-  name: string | null;
-  image: string | null;
-  total: number;
-  exactos: number;
-  ganadores: number;
-  jugados: number;
+type Goal = {
+  player: string;
+  minute: number;
+  team: 'home' | 'away';
 };
 
-async function getLeaderboard(): Promise<Row[]> {
-  const users = await prisma.user.findMany({
-    where: { hasPaid: true, status: 'APPROVED' },
-    select: {
-      id: true,
-      name: true,
-      image: true,
-      picks: {
-        where: { points: { not: null } },
-        select: { points: true },
-      },
-    },
-  });
+type TeamStanding = {
+  name: string;
+  flag: string;
+  pj: number;
+  pg: number;
+  pe: number;
+  pp: number;
+  gf: number;
+  gc: number;
+  dg: number;
+  pts: number;
+};
 
-  const rows = users.map((u) => {
-    let total = 0;
-    let exactos = 0;
-    let ganadores = 0;
-    let jugados = 0;
-    for (const p of u.picks) {
-      if (p.points == null) continue;
-      jugados++;
-      total += p.points;
-      if (p.points === 3) exactos++;
-      else if (p.points === 1) ganadores++;
+// Función para calcular las tablas de posiciones dinámicamente
+function calculateStandings(matches: any[]): Record<string, TeamStanding[]> {
+  const standings: Record<string, Record<string, TeamStanding>> = {};
+
+  for (const match of matches) {
+    if (match.phase !== 'GROUP') continue;
+    const group = match.groupName;
+
+    if (!standings[group]) {
+      standings[group] = {};
     }
-    return { id: u.id, name: u.name, image: u.image, total, exactos, ganadores, jugados };
-  });
 
-  rows.sort((a, b) => {
-    if (b.total !== a.total) return b.total - a.total;
-    if (b.exactos !== a.exactos) return b.exactos - a.exactos;
-    return b.ganadores - a.ganadores;
-  });
+    // Inicializar equipos si no existen en el registro del grupo
+    if (!standings[group][match.homeTeam]) {
+      standings[group][match.homeTeam] = {
+        name: match.homeTeam,
+        flag: match.homeFlag,
+        pj: 0, pg: 0, pe: 0, pp: 0, gf: 0, gc: 0, dg: 0, pts: 0,
+      };
+    }
+    if (!standings[group][match.awayTeam]) {
+      standings[group][match.awayTeam] = {
+        name: match.awayTeam,
+        flag: match.awayFlag,
+        pj: 0, pg: 0, pe: 0, pp: 0, gf: 0, gc: 0, dg: 0, pts: 0,
+      };
+    }
 
-  return rows;
+    // Si el partido se jugó, calcular estadísticas
+    if (match.homeScore !== null && match.awayScore !== null) {
+      const h = standings[group][match.homeTeam];
+      const a = standings[group][match.awayTeam];
+
+      h.pj += 1;
+      a.pj += 1;
+      h.gf += match.homeScore;
+      h.gc += match.awayScore;
+      a.gf += match.awayScore;
+      a.gc += match.homeScore;
+
+      if (match.homeScore > match.awayScore) {
+        h.pg += 1;
+        h.pts += 3;
+        a.pp += 1;
+      } else if (match.homeScore < match.awayScore) {
+        a.pg += 1;
+        a.pts += 3;
+        h.pp += 1;
+      } else {
+        h.pe += 1;
+        h.pts += 1;
+        a.pe += 1;
+        a.pts += 1;
+      }
+
+      h.dg = h.gf - h.gc;
+      a.dg = a.gf - a.gc;
+    }
+  }
+
+  // Ordenar los equipos de cada grupo según reglas oficiales
+  const sortedStandings: Record<string, TeamStanding[]> = {};
+  for (const group of Object.keys(standings)) {
+    sortedStandings[group] = Object.values(standings[group]).sort((a, b) => {
+      if (b.pts !== a.pts) return b.pts - a.pts;
+      if (b.dg !== a.dg) return b.dg - a.dg;
+      if (b.gf !== a.gf) return b.gf - a.gf;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  return sortedStandings;
 }
 
 export default async function HomePage() {
-  const [rows, pozo, session] = await Promise.all([
-    getLeaderboard(),
-    getPozo(),
-    getServerSession(authOptions),
-  ]);
-  const myId = session?.user?.id;
+  const matches = await prisma.match.findMany({
+    orderBy: { matchDate: 'asc' },
+  });
+
+  const standings = calculateStandings(matches);
+
+  // Separar en jugados (con resultado) y próximos
+  const playedMatches = matches.filter((m) => m.homeScore !== null && m.awayScore !== null);
+  const upcomingMatches = matches.filter((m) => m.homeScore === null || m.awayScore === null);
+
+  // Obtener los últimos 10 partidos jugados para visualización rápida
+  const recentPlayed = [...playedMatches].reverse().slice(0, 10);
+  // Obtener los próximos 6 partidos
+  const nextUpcoming = upcomingMatches.slice(0, 6);
+
+  const groups = Object.keys(standings).sort();
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-xl bg-gradient-to-br from-prode-gold to-prode-gold-light p-5 shadow ring-1 ring-prode-gold/40">
-        <h2 className="text-lg font-bold text-prode-green sm:text-xl">💰 Pozo actual</h2>
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-white/70 p-3">
-            <div className="text-xs uppercase text-prode-green/70">Total recaudado</div>
-            <div className="text-xl font-bold text-prode-green">{formatARS(pozo.totalRecaudado)}</div>
+    <div className="mx-auto max-w-7xl px-4 py-8 space-y-12 min-h-[100dvh]">
+      {/* Encabezado Principal */}
+      <header className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-prode-green to-slate-900 text-white p-8 md:p-12 shadow-2xl">
+        <div className="relative z-10 max-w-2xl space-y-4">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-prode-gold/20 text-prode-gold px-3.5 py-1 text-xs font-bold tracking-wide uppercase border border-prode-gold/30">
+            Mundial 2026 - Centro de Resultados
+          </span>
+          <h1 className="text-4xl md:text-5xl font-black tracking-tight leading-none text-white">
+            Sigue cada minuto del torneo oficial
+          </h1>
+          <p className="text-slate-300 text-sm md:text-base leading-relaxed">
+            Resultados en tiempo real, goleadores al minuto, tablas de posiciones dinámicas y transmisión oficial de todos los partidos.
+          </p>
+        </div>
+        <div className="absolute top-0 right-0 w-96 h-96 bg-prode-gold/5 rounded-full blur-3xl pointer-events-none" />
+      </header>
+
+      {/* Grid de Partidos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Columna de Resultados Recientes (66% de ancho en lg) */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="text-xl md:text-2xl font-extrabold text-slate-800 tracking-tight">
+              Resultados Recientes
+            </h2>
+            <span className="text-xs font-semibold text-slate-400 font-mono">
+              {playedMatches.length} partidos jugados
+            </span>
           </div>
-          <div className="rounded-lg bg-white p-3 ring-2 ring-prode-green">
-            <div className="text-xs uppercase text-prode-green/70">🏆 Premio (70%)</div>
-            <div className="text-2xl font-extrabold text-prode-green">{formatARS(pozo.premio)}</div>
-          </div>
-          <div className="rounded-lg bg-white/70 p-3">
-            <div className="text-xs uppercase text-prode-green/70">👥 Participantes</div>
-            <div className="text-xl font-bold text-prode-green">{pozo.participantes} jugadores</div>
+
+          <div className="space-y-4">
+            {recentPlayed.map((match) => {
+              // Parsear goles de forma segura
+              let goalsList: Goal[] = [];
+              if (match.goals) {
+                try {
+                  goalsList = typeof match.goals === 'string' ? JSON.parse(match.goals) : (match.goals as any);
+                } catch (e) {
+                  goalsList = [];
+                }
+              }
+
+              const homeGoals = goalsList.filter((g) => g.team === 'home');
+              const awayGoals = goalsList.filter((g) => g.team === 'away');
+
+              return (
+                <div
+                  key={match.id}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:border-slate-300 transition-all duration-300"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-50 pb-2.5 mb-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                    <span>Grupo {match.groupName}</span>
+                    <span>
+                      {new Date(match.matchDate).toLocaleDateString('es-AR', {
+                        day: 'numeric',
+                        month: 'short',
+                        timeZone: 'America/Argentina/Buenos_Aires',
+                      })}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 items-center text-center">
+                    {/* Equipo Local */}
+                    <div className="flex flex-col items-center space-y-2">
+                      <span className="text-4xl filter drop-shadow-sm">{match.homeFlag}</span>
+                      <span className="font-bold text-slate-800 text-sm md:text-base truncate max-w-[120px]">
+                        {match.homeTeam}
+                      </span>
+                    </div>
+
+                    {/* Score */}
+                    <div className="flex flex-col items-center justify-center space-y-1">
+                      <div className="flex items-center gap-4 text-3xl font-extrabold text-slate-900 font-mono">
+                        <span>{match.homeScore}</span>
+                        <span className="text-slate-300 text-xl font-normal">-</span>
+                        <span>{match.awayScore}</span>
+                      </div>
+                      <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-mono">
+                        Finalizado
+                      </span>
+                    </div>
+
+                    {/* Equipo Visitante */}
+                    <div className="flex flex-col items-center space-y-2">
+                      <span className="text-4xl filter drop-shadow-sm">{match.awayFlag}</span>
+                      <span className="font-bold text-slate-800 text-sm md:text-base truncate max-w-[120px]">
+                        {match.awayTeam}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Detalle de Goles */}
+                  {goalsList.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-4 text-xs text-slate-500">
+                      {/* Goles Local */}
+                      <div className="space-y-1 text-left">
+                        {homeGoals.map((g, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 truncate">
+                            <span className="text-amber-500 font-mono">⚽</span>
+                            <span className="font-medium text-slate-700">{g.player}</span>
+                            <span className="text-slate-400 font-mono">({g.minute}&apos;)</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Goles Visitante */}
+                      <div className="space-y-1 text-right">
+                        {awayGoals.map((g, idx) => (
+                          <div key={idx} className="flex items-center justify-end gap-1.5 truncate">
+                            <span className="text-slate-400 font-mono">({g.minute}&apos;)</span>
+                            <span className="font-medium text-slate-700">{g.player}</span>
+                            <span className="text-amber-500 font-mono">⚽</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-      </section>
 
-      <section className="card">
-        <h2 className="mb-3 text-lg font-bold text-prode-green sm:text-xl">🏆 Tabla de posiciones</h2>
-        {rows.length === 0 ? (
-          <p className="text-sm text-gray-500">
-            Aún no hay participantes con pagos confirmados.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase text-gray-500">
-                  <th className="py-2 pr-2">#</th>
-                  <th className="py-2 pr-2">Jugador</th>
-                  <th className="py-2 pr-2 text-right">Pts</th>
-                  <th className="hidden py-2 pr-2 text-right sm:table-cell">Exactos (3)</th>
-                  <th className="hidden py-2 pr-2 text-right sm:table-cell">Ganador (1)</th>
-                  <th className="py-2 pr-2 text-right">PJ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => {
-                  const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
-                  const mine = myId === r.id;
-                  return (
-                    <tr
-                      key={r.id}
-                      className={`border-b last:border-0 ${mine ? 'bg-prode-gold/20 font-semibold' : ''}`}
-                    >
-                      <td className="py-2 pr-2">
-                        {medal ?? <span className="text-gray-500">{i + 1}</span>}
-                      </td>
-                      <td className="py-2 pr-2">
-                        <div className="flex items-center gap-2">
-                          {r.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={r.image}
-                              alt=""
-                              className="h-7 w-7 rounded-full"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="h-7 w-7 rounded-full bg-prode-green/20" />
-                          )}
-                          <span>{r.name ?? 'Sin nombre'}</span>
-                        </div>
-                      </td>
-                      <td className="py-2 pr-2 text-right font-bold">{r.total}</td>
-                      <td className="hidden py-2 pr-2 text-right sm:table-cell">{r.exactos}</td>
-                      <td className="hidden py-2 pr-2 text-right sm:table-cell">{r.ganadores}</td>
-                      <td className="py-2 pr-2 text-right">{r.jugados}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {/* Columna Lateral de Próximos Partidos (33% ancho) */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="text-xl font-extrabold text-slate-800 tracking-tight">
+              Próximos Partidos
+            </h2>
           </div>
-        )}
+
+          <div className="space-y-3">
+            {nextUpcoming.map((match) => (
+              <div
+                key={match.id}
+                className="rounded-2xl border border-slate-150 bg-white p-4 shadow-sm hover:border-slate-300 transition-all duration-200"
+              >
+                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono mb-2">
+                  <span>Grupo {match.groupName}</span>
+                  <span>
+                    {new Date(match.matchDate).toLocaleDateString('es-AR', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      timeZone: 'America/Argentina/Buenos_Aires',
+                    })}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{match.homeFlag}</span>
+                    <span className="font-bold text-slate-700 text-xs truncate max-w-[90px]">
+                      {match.homeTeam}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-extrabold bg-amber-500/10 text-amber-800 px-2.5 py-0.5 rounded-full font-mono uppercase tracking-wider">
+                    VS
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-700 text-xs truncate max-w-[90px]">
+                      {match.awayTeam}
+                    </span>
+                    <span className="text-2xl">{match.awayFlag}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Tablas de Posiciones de los Grupos */}
+      <section className="space-y-6">
+        <div className="border-b border-slate-100 pb-3">
+          <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+            Tablas de Posiciones
+          </h2>
+          <p className="text-slate-400 text-xs mt-1">
+            Calculadas automáticamente en base a los marcadores oficiales.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {groups.map((group) => (
+            <div
+              key={group}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden"
+            >
+              <h3 className="font-black text-lg text-slate-900 border-b pb-2 mb-3 tracking-tight">
+                Grupo {group}
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono border-b pb-1">
+                      <th className="py-1.5">Equipo</th>
+                      <th className="py-1.5 text-center">PJ</th>
+                      <th className="py-1.5 text-center">DG</th>
+                      <th className="py-1.5 text-right">Pts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {standings[group].map((team, idx) => (
+                      <tr key={team.name} className="border-b last:border-0 hover:bg-slate-50/50">
+                        <td className="py-2 flex items-center gap-2">
+                          <span className="font-bold text-slate-400 w-3 text-center">{idx + 1}</span>
+                          <span className="text-lg filter drop-shadow-sm select-none">{team.flag}</span>
+                          <span className="font-bold text-slate-700 truncate max-w-[110px]">
+                            {team.name}
+                          </span>
+                        </td>
+                        <td className="py-2 text-center font-mono text-slate-600">{team.pj}</td>
+                        <td className="py-2 text-center font-mono text-slate-600">
+                          {team.dg > 0 ? `+${team.dg}` : team.dg}
+                        </td>
+                        <td className="py-2 text-right font-black font-mono text-slate-900">
+                          {team.pts}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   );
